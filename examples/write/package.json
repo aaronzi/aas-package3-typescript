@@ -1,0 +1,16 @@
+{
+  "name": "@aasx/package3-example-write",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx main.ts",
+    "start:out": "tsx main.ts ../../example.aasx"
+  },
+  "dependencies": {
+    "@aas-core-works/aas-core3.1-typescript": "^1.0.0",
+    "@aasx/package3": "file:../.."
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}
