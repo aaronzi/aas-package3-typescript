@@ -1,8 +1,19 @@
 {
-  "name": "@aasx/package3",
-  "version": "0.1.0",
+  "name": "aasx-package-ts",
+  "version": "0.1.1",
   "description": "TypeScript AASX v3 packaging library (read/write)",
+  "keywords": [
+    "aas",
+    "aasx",
+    "package",
+    "zip",
+    "xml"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aaronzi/aas-package3-typescript"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
