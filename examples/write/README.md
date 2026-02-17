@@ -9,7 +9,7 @@ This example mirrors the Go write example and creates an AASX containing:
 It uses:
 
 - `@aas-core-works/aas-core3.1-typescript`
-- `@aasx/package3`
+- `aasx-package-ts` (this library)
 
 The flow is the same as the Go example:
 

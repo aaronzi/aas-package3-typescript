@@ -1,5 +1,5 @@
 # Installation
 
 ```bash
-npm install @aasx/package3
+npm install aasx-package-ts
 ```

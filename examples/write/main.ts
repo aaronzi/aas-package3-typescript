@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { NewPackaging } from '@aasx/package3';
+import { NewPackaging } from 'aasx-package-ts';
 
 const require = createRequire(import.meta.url);
 const aasCore31 = require('@aas-core-works/aas-core3.1-typescript') as typeof import('@aas-core-works/aas-core3.1-typescript');

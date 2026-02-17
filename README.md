@@ -14,7 +14,7 @@ It follows the same core approach and function naming as the Go implementation s
 ## Installation
 
 ```bash
-npm install @aasx/package3
+npm install aasx-package-ts
 ```
 
 ## Quick Start
@@ -22,7 +22,7 @@ npm install @aasx/package3
 ### Entry point
 
 ```ts
-import { NewPackaging } from '@aasx/package3';
+import { NewPackaging } from 'aasx-package-ts';
 
 const packaging = NewPackaging();
 ```

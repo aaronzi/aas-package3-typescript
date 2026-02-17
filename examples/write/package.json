@@ -1,5 +1,5 @@
 {
-  "name": "@aasx/package3-example-write",
+  "name": "aasx-package-ts-example-write",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@aas-core-works/aas-core3.1-typescript": "^1.0.0",
-    "@aasx/package3": "file:../.."
+    "aasx-package-ts": "file:../.."
   },
   "devDependencies": {
     "tsx": "^4.20.6"
