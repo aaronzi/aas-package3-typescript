@@ -6,6 +6,7 @@ import {
   ErrInvalidFormat,
   ErrNoOriginPart,
   NewPackaging,
+  RelationTypeAasxOrigin,
   RelationTypeAasxSpec,
   RelationTypeAasxSupplementary,
   RelationTypeThumbnail,
@@ -108,6 +109,65 @@ describe('Packaging', () => {
     await expect(packaging.OpenReadFromBytes(zipSync({}))).rejects.toThrow(ErrNoOriginPart);
   });
 
+  test('opens package with deprecated aasx relationship host for origin/spec/supplementary', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/spec.aas.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    const supplementary = await pkg.PutPart(
+      new URL('https://package.local/aasx/doc.pdf'),
+      'application/pdf',
+      new Uint8Array([1, 2, 3])
+    );
+
+    await pkg.MakeSpec(spec);
+    await pkg.RelateSupplementaryToSpec(supplementary, spec);
+
+    const bytes = await pkg.Flush();
+    const deprecatedHostBytes = rewriteAasxRelationshipHost(bytes, DeprecatedAasxRelationshipsPrefix);
+
+    const reopened = await packaging.OpenReadFromBytes(deprecatedHostBytes);
+    const specs = await reopened.Specs();
+    expect(specs).toHaveLength(1);
+    expect(await reopened.IsSpec(specs[0])).toBe(true);
+
+    const supplementaryRels = await reopened.SupplementaryRelationships();
+    expect(supplementaryRels).toHaveLength(1);
+    expect(supplementaryRels[0].Spec.URI.pathname).toBe('/aasx/spec.aas.xml');
+    expect(supplementaryRels[0].Supplementary.URI.pathname).toBe('/aasx/doc.pdf');
+  });
+
+  test('writes preferred relationship host after opening deprecated host package', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/spec.aas.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    await pkg.MakeSpec(spec);
+
+    const initialBytes = await pkg.Flush();
+    const deprecatedHostBytes = rewriteAasxRelationshipHost(initialBytes, DeprecatedAasxRelationshipsPrefix);
+
+    const reopened = await packaging.OpenReadWriteFromBytes(deprecatedHostBytes);
+    const roundTripBytes = await reopened.Flush();
+
+    const relsXmls = getRelationshipXmlFiles(roundTripBytes);
+    expect(relsXmls.length).toBeGreaterThan(0);
+    for (const xml of relsXmls) {
+      expect(xml).not.toContain(DeprecatedAasxRelationshipsPrefix);
+    }
+    expect(relsXmls.join('\n')).toContain(RelationTypeAasxOrigin);
+    expect(relsXmls.join('\n')).toContain(RelationTypeAasxSpec);
+    expect(relsXmls.join('\n')).not.toContain(RelationTypeAasxSupplementary);
+  });
+
   test('groups specs by content type and sorts by URI path', async () => {
     const packaging = NewPackaging();
     const pkg = await packaging.CreateInStream(memoryStream());
@@ -166,4 +226,35 @@ function memoryStream(): {
       bytes = data.slice();
     }
   };
+}
+
+const PreferredAasxRelationshipsPrefix = 'http://admin-shell.io/aasx/relationships/';
+const DeprecatedAasxRelationshipsPrefix = 'http://www.admin-shell.io/aasx/relationships/';
+
+function rewriteAasxRelationshipHost(bytes: Uint8Array, nextPrefix: string): Uint8Array {
+  const files = unzipSync(bytes);
+  const rewritten: Record<string, Uint8Array> = {};
+
+  for (const [name, content] of Object.entries(files)) {
+    if (name.endsWith('.rels')) {
+      const xml = new TextDecoder().decode(content);
+      rewritten[name] = new TextEncoder().encode(
+        xml
+          .split(PreferredAasxRelationshipsPrefix)
+          .join(nextPrefix)
+          .split(DeprecatedAasxRelationshipsPrefix)
+          .join(nextPrefix)
+      );
+      continue;
+    }
+    rewritten[name] = content;
+  }
+
+  return zipSync(rewritten, { level: 0 });
+}
+
+function getRelationshipXmlFiles(bytes: Uint8Array): string[] {
+  const files = unzipSync(bytes);
+  const relEntries = Object.entries(files).filter(([name]) => name.endsWith('.rels'));
+  return relEntries.map(([, content]) => new TextDecoder().decode(content));
 }

@@ -7,6 +7,8 @@ export const RelationTypeAasxSpec = 'http://admin-shell.io/aasx/relationships/aa
 export const RelationTypeAasxSupplementary = 'http://admin-shell.io/aasx/relationships/aas-suppl';
 export const RelationTypeThumbnail = 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail';
 
+const AasxRelationshipsPrefix = 'http://admin-shell.io/aasx/relationships/';
+
 const OpcRelationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const OpcContentTypesNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types';
 
@@ -79,7 +81,7 @@ class PackageBase {
     const existing = this.relationships.get(normalizedSource) ?? [];
     existing.push({
       id,
-      relType,
+      relType: canonicalizeRelationshipType(relType),
       target: targetPath,
       targetMode: 'Internal'
     });
@@ -93,7 +95,10 @@ class PackageBase {
     const old = this.relationships.get(normalizedSource) ?? [];
     this.relationships.set(
       normalizedSource,
-      old.filter((rel) => !(normalizePathForMap(rel.target) === normalizedTarget && rel.relType === relType))
+      old.filter(
+        (rel) =>
+          !(normalizePathForMap(rel.target) === normalizedTarget && relationshipTypeEquals(rel.relType, relType))
+      )
     );
   }
 
@@ -115,13 +120,13 @@ class PackageBase {
     const normalizedSource = normalizePathForMap(sourcePath);
     const normalizedTarget = normalizePathForMap(targetPath);
     return (this.relationships.get(normalizedSource) ?? []).some(
-      (rel) => rel.relType === relType && normalizePathForMap(rel.target) === normalizedTarget
+      (rel) => relationshipTypeEquals(rel.relType, relType) && normalizePathForMap(rel.target) === normalizedTarget
     );
   }
 
   getRelationshipsByType(sourcePath: string, relType: string): Relationship[] {
     const normalizedSource = normalizePathForMap(sourcePath);
-    return (this.relationships.get(normalizedSource) ?? []).filter((rel) => rel.relType === relType);
+    return (this.relationships.get(normalizedSource) ?? []).filter((rel) => relationshipTypeEquals(rel.relType, relType));
   }
 }
 
@@ -493,7 +498,7 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
           const targetPath = resolveRelativeURI(sourcePath, rel.target);
           pkg.addRelationshipWithID(sourcePath, targetPath, rel.relType, rel.id);
 
-          if (rel.relType === RelationTypeAasxOrigin && sourcePath === '') {
+          if (relationshipTypeEquals(rel.relType, RelationTypeAasxOrigin) && sourcePath === '') {
             pkg.originURI = normalizePathForMap(targetPath);
           }
         }
@@ -528,6 +533,19 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
     }
     throw new Error(`${ErrInvalidFormat}: ${(error as Error).message}`);
   }
+}
+
+function canonicalizeRelationshipType(relType: string): string {
+  const trimmed = relType.trim();
+  const match = /^https?:\/\/(?:www\.)?admin-shell\.io\/aasx\/relationships\/(.+)$/i.exec(trimmed);
+  if (match) {
+    return `${AasxRelationshipsPrefix}${match[1]}`;
+  }
+  return trimmed;
+}
+
+function relationshipTypeEquals(left: string, right: string): boolean {
+  return canonicalizeRelationshipType(left) === canonicalizeRelationshipType(right);
 }
 
 function parseRelationshipsXml(xml: string): Relationship[] {
