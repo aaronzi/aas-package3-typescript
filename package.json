@@ -12,7 +12,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aaronzi/aas-package3-typescript"
+    "url": "git+https://github.com/aaronzi/aas-package3-typescript.git"
   },
   "type": "module",
   "main": "./dist/index.cjs",
