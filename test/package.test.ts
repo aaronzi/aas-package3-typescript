@@ -168,6 +168,56 @@ describe('Packaging', () => {
     expect(relsXmls.join('\n')).not.toContain(RelationTypeAasxSupplementary);
   });
 
+  test('round-trip serialization keeps package-local relationships internal and external relationships external', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/spec.aas.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    const supplementary = await pkg.PutPart(
+      new URL('https://package.local/aasx/doc.pdf'),
+      'application/pdf',
+      new Uint8Array([1, 2, 3])
+    );
+
+    await pkg.MakeSpec(spec);
+    await pkg.RelateSupplementaryToSpec(supplementary, spec);
+
+    const initialBytes = await pkg.Flush();
+    const bytesWithExternalRel = addExternalRootRelationship(
+      initialBytes,
+      'Rext0001',
+      'http://example.com/relationships/external-ref',
+      'https://example.com/external-resource'
+    );
+
+    const reopened = await packaging.OpenReadWriteFromBytes(bytesWithExternalRel);
+    const roundTripBytes = await reopened.Flush();
+    const rels = getRelationshipXmlFileMap(roundTripBytes);
+
+    const rootRels = rels['_rels/.rels'];
+    expect(rootRels).toBeTruthy();
+    const originRel = findRelationshipTag(rootRels, RelationTypeAasxOrigin);
+    expect(originRel).toBeTruthy();
+    expect(originRel).toContain('Target="/aasx/aasx-origin"');
+    expect(originRel).not.toContain('TargetMode="External"');
+
+    const supplementaryRels = rels['aasx/_rels/spec.aas.xml.rels'];
+    expect(supplementaryRels).toBeTruthy();
+    const supplementaryRel = findRelationshipTag(supplementaryRels, RelationTypeAasxSupplementary);
+    expect(supplementaryRel).toBeTruthy();
+    expect(supplementaryRel).toContain('Target="/aasx/doc.pdf"');
+    expect(supplementaryRel).not.toContain('TargetMode="External"');
+
+    const externalRel = findRelationshipTag(rootRels, 'http://example.com/relationships/external-ref');
+    expect(externalRel).toBeTruthy();
+    expect(externalRel).toContain('Target="https://example.com/external-resource"');
+    expect(externalRel).toContain('TargetMode="External"');
+  });
+
   test('groups specs by content type and sorts by URI path', async () => {
     const packaging = NewPackaging();
     const pkg = await packaging.CreateInStream(memoryStream());
@@ -257,4 +307,37 @@ function getRelationshipXmlFiles(bytes: Uint8Array): string[] {
   const files = unzipSync(bytes);
   const relEntries = Object.entries(files).filter(([name]) => name.endsWith('.rels'));
   return relEntries.map(([, content]) => new TextDecoder().decode(content));
+}
+
+function getRelationshipXmlFileMap(bytes: Uint8Array): Record<string, string> {
+  const files = unzipSync(bytes);
+  const rels: Record<string, string> = {};
+  for (const [name, content] of Object.entries(files)) {
+    if (!name.endsWith('.rels')) {
+      continue;
+    }
+    rels[name] = new TextDecoder().decode(content);
+  }
+  return rels;
+}
+
+function addExternalRootRelationship(
+  bytes: Uint8Array,
+  id: string,
+  relType: string,
+  target: string
+): Uint8Array {
+  const files = unzipSync(bytes);
+  const rootPath = '_rels/.rels';
+  const rootRels = new TextDecoder().decode(files[rootPath]);
+  const externalRelationship = `  <Relationship Id="${id}" Type="${relType}" Target="${target}" TargetMode="External"/>\n`;
+
+  files[rootPath] = new TextEncoder().encode(rootRels.replace('</Relationships>', `${externalRelationship}</Relationships>`));
+  return zipSync(files, { level: 0 });
+}
+
+function findRelationshipTag(xml: string, relType: string): string | null {
+  const escapedType = relType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = xml.match(new RegExp(`<Relationship\\b[^>]*\\bType="${escapedType}"[^>]*/>`));
+  return match ? match[0] : null;
 }

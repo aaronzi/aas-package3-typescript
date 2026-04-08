@@ -20,7 +20,7 @@ interface Relationship {
   id: string;
   relType: string;
   target: string;
-  targetMode: string;
+  targetMode?: string;
 }
 
 interface XmlNodeLike {
@@ -76,14 +76,21 @@ class PackageBase {
     return this.addRelationshipWithID(sourcePath, targetPath, relType, id);
   }
 
-  addRelationshipWithID(sourcePath: string, targetPath: string, relType: string, id: string): string {
+  addRelationshipWithID(
+    sourcePath: string,
+    targetPath: string,
+    relType: string,
+    id: string,
+    targetModeHint?: string
+  ): string {
     const normalizedSource = normalizePathForMap(sourcePath);
     const existing = this.relationships.get(normalizedSource) ?? [];
+    const normalizedTarget = targetPath.replace(/\\/g, '/');
     existing.push({
       id,
       relType: canonicalizeRelationshipType(relType),
-      target: targetPath,
-      targetMode: 'Internal'
+      target: normalizedTarget,
+      targetMode: determineRelationshipTargetMode(normalizedTarget, targetModeHint)
     });
     this.relationships.set(normalizedSource, existing);
     return id;
@@ -496,7 +503,7 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
 
         for (const rel of rels) {
           const targetPath = resolveRelativeURI(sourcePath, rel.target);
-          pkg.addRelationshipWithID(sourcePath, targetPath, rel.relType, rel.id);
+          pkg.addRelationshipWithID(sourcePath, targetPath, rel.relType, rel.id, rel.targetMode);
 
           if (relationshipTypeEquals(rel.relType, RelationTypeAasxOrigin) && sourcePath === '') {
             pkg.originURI = normalizePathForMap(targetPath);
@@ -572,7 +579,7 @@ function parseRelationshipsXml(xml: string): Relationship[] {
       id,
       relType,
       target,
-      targetMode: attributes.TargetMode ?? 'Internal'
+      targetMode: attributes.TargetMode
     });
   }
 
@@ -633,7 +640,7 @@ function buildRelationshipsXml(relationships: Relationship[]): string {
         Id: rel.id,
         Type: rel.relType,
         Target: rel.target,
-        ...(rel.targetMode && rel.targetMode !== 'Internal' ? { TargetMode: rel.targetMode } : {})
+        ...(determineRelationshipTargetMode(rel.target, rel.targetMode) === 'External' ? { TargetMode: 'External' } : {})
       },
       children: []
     }))
@@ -770,12 +777,32 @@ function getRelsPath(sourcePath: string): string {
 
 function resolveRelativeURI(sourcePath: string, target: string): string {
   const normalizedTarget = target.replace(/\\/g, '/');
+  if (isAbsoluteExternalURI(normalizedTarget)) {
+    return normalizedTarget;
+  }
+
   if (normalizedTarget.startsWith('/')) {
     return normalizedTarget;
   }
 
   const sourceDirectory = !sourcePath ? '/' : dirName(sourcePath) || '/';
   return normalizePath(`${sourceDirectory}/${normalizedTarget}`);
+}
+
+function determineRelationshipTargetMode(target: string, targetModeHint?: string): 'Internal' | 'External' {
+  const normalizedHint = targetModeHint?.trim().toLowerCase();
+  if (normalizedHint === 'external' && isAbsoluteExternalURI(target)) {
+    return 'External';
+  }
+  if (normalizedHint === 'internal' && !isAbsoluteExternalURI(target)) {
+    return 'Internal';
+  }
+
+  return isAbsoluteExternalURI(target) ? 'External' : 'Internal';
+}
+
+function isAbsoluteExternalURI(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value);
 }
 
 function normalizePath(input: string): string {
