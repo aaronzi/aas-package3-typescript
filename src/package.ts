@@ -1,5 +1,5 @@
 import { unzipSync, zipSync } from 'fflate';
-import { parseXmlString, serializeXml } from 'xml-sax-ts';
+import { parseXmlString, serializeXml } from 'xmlsax-typescript';
 import { Ensure, Require } from './dbc';
 
 export const RelationTypeAasxOrigin = 'http://admin-shell.io/aasx/relationships/aasx-origin';
