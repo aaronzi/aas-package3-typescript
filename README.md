@@ -138,6 +138,7 @@ npm install aas-package3-typescript
 | `IsSpec(part)` | Check if a part is a spec |
 | `SupplementariesFor(spec)` | List supplementary parts for a spec |
 | `SupplementaryRelationships()` | List all supplementary relationships |
+| `Parts()` | List all parts in the package, including parts no relationship targets |
 | `FindPart(uri)` | Find a part by URI (returns null if not found) |
 | `MustPart(uri)` | Get a part by URI (throws if not found) |
 | `Thumbnail()` | Get the package thumbnail |

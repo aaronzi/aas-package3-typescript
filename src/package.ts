@@ -310,6 +310,12 @@ export class PackageRead {
     return result;
   }
 
+  async Parts(): Promise<Part[]> {
+    return Array.from(this.base.parts.values()).sort((left, right) =>
+      pathFromUri(left.URI).localeCompare(pathFromUri(right.URI))
+    );
+  }
+
   async FindPart(uri: URL): Promise<Part | null> {
     return this.base.parts.get(normalizeURI(uri)) ?? null;
   }
