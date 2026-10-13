@@ -247,6 +247,33 @@ describe('Packaging', () => {
     expect(grouped['text/xml'].map((part) => part.URI.pathname)).toEqual(['/aasx/some-company/data.xml']);
   });
 
+  test('lists all parts including parts no relationship targets', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/data.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    await pkg.MakeSpec(spec);
+    await pkg.PutPart(new URL('https://package.local/aasx/suppl/orphan.pdf'), 'application/pdf', new Uint8Array([1]));
+
+    const reopened = await packaging.OpenReadWriteFromBytes(await pkg.Flush());
+    expect(await reopened.SupplementaryRelationships()).toHaveLength(0);
+
+    const parts = await reopened.Parts();
+    expect(parts.map((part) => part.URI.pathname)).toEqual([
+      '/aasx/aasx-origin',
+      '/aasx/data.xml',
+      '/aasx/suppl/orphan.pdf'
+    ]);
+    expect(parts[2].ContentType).toBe('application/pdf');
+
+    await reopened.DeletePart(parts[2]);
+    expect((await reopened.Parts()).map((part) => part.URI.pathname)).toEqual(['/aasx/aasx-origin', '/aasx/data.xml']);
+  });
+
   test('reads chunked stream content with PutPartFromStream', async () => {
     const packaging = NewPackaging();
     const pkg = await packaging.CreateInStream(memoryStream());
