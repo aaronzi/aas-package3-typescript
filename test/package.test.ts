@@ -274,6 +274,113 @@ describe('Packaging', () => {
     expect((await reopened.Parts()).map((part) => part.URI.pathname)).toEqual(['/aasx/aasx-origin', '/aasx/data.xml']);
   });
 
+  test.each([
+    ['percent-encoded entry names', 'aasx/suppl/a%20b.pdf', '/aasx/suppl/a%20b.pdf'],
+    ['literal entry names', 'aasx/suppl/a b.pdf', '/aasx/suppl/a b.pdf']
+  ])('finds parts with a space in their name for %s', async (_, entryName, target) => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.OpenReadWriteFromBytes(packageWithSupplementary(entryName, target));
+
+    const [spec] = await pkg.Specs();
+    const [supplementary] = await pkg.SupplementariesFor(spec);
+    expect(supplementary.URI.pathname).toBe('/aasx/suppl/a%20b.pdf');
+    expect(await pkg.FindPart(supplementary.URI)).toBe(supplementary);
+    expect(await pkg.FindPart(new URL('aasx/suppl/a b.pdf', 'https://package.local/'))).toBe(supplementary);
+    expect(await pkg.FindPart(new URL('https://package.local/AASX/suppl/A%20B.pdf'))).toBe(supplementary);
+
+    const roundTripped = await packaging.OpenReadFromBytes(await pkg.Flush());
+    const [roundTrippedSpec] = await roundTripped.Specs();
+    expect(await roundTripped.SupplementariesFor(roundTrippedSpec)).toHaveLength(1);
+    expect(Object.keys(unzipSync(await pkg.Flush()))).toContain(entryName);
+
+    await pkg.DeletePart(supplementary);
+    expect(await pkg.FindPart(supplementary.URI)).toBeNull();
+    const afterDelete = unzipSync(await pkg.Flush());
+    expect(Object.keys(afterDelete)).not.toContain(entryName);
+    expect(new TextDecoder().decode(afterDelete['aasx/_rels/data.xml.rels'] ?? new Uint8Array())).not.toContain(
+      'aas-suppl'
+    );
+  });
+
+  test('finds parts whose entry name contains URI delimiters', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.OpenReadFromBytes(packageWithSupplementary('aasx/suppl/100%#1.pdf', '/aasx/suppl/100%25%231.pdf'));
+
+    const [supplementary] = await pkg.SupplementariesFor((await pkg.Specs())[0]);
+    expect(supplementary.URI.pathname).toBe('/aasx/suppl/100%25%231.pdf');
+    expect(await pkg.FindPart(supplementary.URI)).toBe(supplementary);
+  });
+
+  test('rejects ZIP entries with equivalent part names', async () => {
+    const files = unzipSync(packageWithSupplementary('aasx/suppl/a b.pdf', '/aasx/suppl/a%20b.pdf'));
+    files['aasx/suppl/a%20b.pdf'] = new Uint8Array([1]);
+
+    await expect(NewPackaging().OpenReadFromBytes(zipSync(files, { level: 0 }))).rejects.toThrow(
+      `${ErrInvalidFormat}: duplicate ZIP entries "aasx/suppl/a b.pdf" and "aasx/suppl/a%20b.pdf"`
+    );
+  });
+
+  test('distinguishes part names that differ only in non-ASCII case', async () => {
+    const files = unzipSync(packageWithSupplementary('aasx/suppl/%C3%84.pdf', '/aasx/suppl/%C3%84.pdf'));
+    files['aasx/suppl/%C3%A4.pdf'] = new Uint8Array([1]);
+    const pkg = await NewPackaging().OpenReadFromBytes(zipSync(files, { level: 0 }));
+
+    const upper = await pkg.FindPart(new URL('https://package.local/aasx/suppl/Ä.pdf'));
+    const lower = await pkg.FindPart(new URL('https://package.local/aasx/suppl/ä.pdf'));
+    expect(upper?.URI.pathname).toBe('/aasx/suppl/%C3%84.pdf');
+    expect(lower?.URI.pathname).toBe('/aasx/suppl/%C3%A4.pdf');
+    expect(await pkg.SupplementariesFor((await pkg.Specs())[0])).toEqual([upper]);
+  });
+
+  test('writes parts with a space in their name percent-encoded and finds them again', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/my data.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    await pkg.MakeSpec(spec);
+    const supplementary = await pkg.PutPart(
+      new URL('https://package.local/aasx/suppl/a b.pdf'),
+      'application/pdf',
+      new Uint8Array([1])
+    );
+    await pkg.RelateSupplementaryToSpec(supplementary, spec);
+
+    const bytes = await pkg.Flush();
+    expect(Object.keys(unzipSync(bytes))).toEqual(
+      expect.arrayContaining(['aasx/my%20data.xml', 'aasx/_rels/my%20data.xml.rels', 'aasx/suppl/a%20b.pdf'])
+    );
+
+    const reopened = await packaging.OpenReadFromBytes(bytes);
+    const [reopenedSpec] = await reopened.Specs();
+    expect(await reopened.IsSpec(reopenedSpec)).toBe(true);
+    expect(await reopened.SupplementariesFor(reopenedSpec)).toHaveLength(1);
+    expect(await reopened.FindPart(new URL('https://package.local/aasx/suppl/a b.pdf'))).not.toBeNull();
+  });
+
+  test('keeps the case of relationship part names', async () => {
+    const packaging = NewPackaging();
+    const pkg = await packaging.CreateInStream(memoryStream());
+
+    const spec = await pkg.PutPart(
+      new URL('https://package.local/aasx/Data.xml'),
+      'application/xml',
+      new TextEncoder().encode('<aas/>')
+    );
+    await pkg.MakeSpec(spec);
+    const supplementary = await pkg.PutPart(
+      new URL('https://package.local/aasx/doc.pdf'),
+      'application/pdf',
+      new Uint8Array([1])
+    );
+    await pkg.RelateSupplementaryToSpec(supplementary, spec);
+
+    expect(Object.keys(unzipSync(await pkg.Flush()))).toContain('aasx/_rels/Data.xml.rels');
+  });
+
   test('reads chunked stream content with PutPartFromStream', async () => {
     const packaging = NewPackaging();
     const pkg = await packaging.CreateInStream(memoryStream());
@@ -509,7 +616,38 @@ function memoryStream(): {
   };
 }
 
-const PreferredAasxRelationshipsPrefix = 'http://admin-shell.io/aasx/relationships/';
+function packageWithSupplementary(supplementaryEntryName: string, supplementaryTarget: string): Uint8Array {
+  const encode = (text: string) => new TextEncoder().encode(text);
+  const relationships = (rels: string) =>
+    encode(
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`
+    );
+
+  return zipSync(
+    {
+      '[Content_Types].xml': encode(
+        '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Default Extension="pdf" ContentType="application/pdf"/>' +
+          '<Override PartName="/aasx/aasx-origin" ContentType="text/plain"/></Types>'
+      ),
+      '_rels/.rels': relationships(`<Relationship Id="R1" Type="${RelationTypeAasxOrigin}" Target="/aasx/aasx-origin"/>`),
+      'aasx/aasx-origin': encode('Intentionally empty.'),
+      'aasx/_rels/aasx-origin.rels': relationships(
+        `<Relationship Id="R2" Type="${RelationTypeAasxSpec}" Target="/aasx/data.xml"/>`
+      ),
+      'aasx/data.xml': encode('<aas/>'),
+      'aasx/_rels/data.xml.rels': relationships(
+        `<Relationship Id="R3" Type="${RelationTypeAasxSupplementary}" Target="${supplementaryTarget}"/>`
+      ),
+      [supplementaryEntryName]: new Uint8Array([0x25, 0x50, 0x44, 0x46])
+    },
+    { level: 0 }
+  );
+}
+
+const PreferredAasxRelationshipsPrefix ='http://admin-shell.io/aasx/relationships/';
 const DeprecatedAasxRelationshipsPrefix = 'http://www.admin-shell.io/aasx/relationships/';
 
 function rewriteAasxRelationshipHost(bytes: Uint8Array, nextPrefix: string): Uint8Array {

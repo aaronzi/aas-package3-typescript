@@ -61,6 +61,7 @@ class StreamSink implements PackageSink {
 class PackageBase {
   public readonly parts = new Map<string, Part>();
   public readonly relationships = new Map<string, Relationship[]>();
+  public readonly entryNames = new Map<string, string>();
   public originURI = '';
   public nextRelID = 1;
 
@@ -134,6 +135,12 @@ class PackageBase {
   getRelationshipsByType(sourcePath: string, relType: string): Relationship[] {
     const normalizedSource = normalizePathForMap(sourcePath);
     return (this.relationships.get(normalizedSource) ?? []).filter((rel) => relationshipTypeEquals(rel.relType, relType));
+  }
+
+  // Parts read from an archive keep their ZIP entry name so that writing the
+  // package back does not rename them.
+  entryNameFor(normalizedPath: string, part: Part): string {
+    return this.entryNames.get(normalizedPath) ?? trimLeadingSlash(pathFromUri(part.URI));
   }
 }
 
@@ -389,6 +396,7 @@ export class PackageReadWrite extends PackageRead {
   async DeletePart(part: Part): Promise<void> {
     const normalized = normalizeURI(part.URI);
     this.base.parts.delete(normalized);
+    this.base.entryNames.delete(normalized);
     this.base.removeAllRelationshipsWithSourceOrTarget(pathFromUri(part.URI));
     Ensure(!this.base.parts.has(normalized), 'The part should not exist in the package anymore.');
   }
@@ -462,13 +470,14 @@ export class PackageReadWrite extends PackageRead {
         continue;
       }
 
-      const relsPath = getRelsPath(sourcePath);
+      const source = this.base.parts.get(sourcePath);
+      const relsPath = getRelsPath(source ? ensureLeadingSlash(this.base.entryNameFor(sourcePath, source)) : sourcePath);
       const relsXml = buildRelationshipsXml(rels);
       files[trimLeadingSlash(relsPath)] = encodeUtf8(relsXml);
     }
 
-    for (const part of this.base.parts.values()) {
-      files[trimLeadingSlash(pathFromUri(part.URI))] = part.ReadAllBytes();
+    for (const [normalizedPath, part] of this.base.parts.entries()) {
+      files[this.base.entryNameFor(normalizedPath, part)] = part.ReadAllBytes();
     }
 
     return zipSync(files, { level: 0 });
@@ -487,6 +496,19 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
   try {
     const entries = unzipSync(bytes);
     const pkg = new PackageBase(path, readWrite, sink);
+
+    const entryNamesByPartName = new Map<string, string>();
+    for (const name of Object.keys(entries)) {
+      if (name.endsWith('/')) {
+        continue;
+      }
+      const partName = normalizePathForMap(ensureLeadingSlash(name));
+      const previous = entryNamesByPartName.get(partName);
+      if (previous !== undefined) {
+        throw new Error(`duplicate ZIP entries "${previous}" and "${name}"`);
+      }
+      entryNamesByPartName.set(partName, name);
+    }
 
     const contentTypePath = '[Content_Types].xml';
     const contentTypesMap = new Map<string, string>();
@@ -535,8 +557,9 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
         contentType = defaultTypes.get(ext) ?? 'application/octet-stream';
       }
 
-      const uri = asPackageUrl(partPath);
+      const uri = asPackageUrl(escapeEntryNameForURI(partPath));
       pkg.parts.set(normalized, new Part(uri, contentType, entries[name], pkg));
+      pkg.entryNames.set(normalized, trimLeadingSlash(partPath));
     }
 
     return pkg;
@@ -742,12 +765,40 @@ function pathFromUri(uri: URL): string {
   return uri.pathname || uri.toString();
 }
 
+// Part names are compared as case-insensitive ASCII strings and independent
+// of their percent-encoding (ISO/IEC 29500-2), so "/a b.pdf", "/a%20b.pdf"
+// and "/A%20B.pdf" all map to the same key while "/%C3%84" and "/%C3%A4" do
+// not.
 function normalizePathForMap(path: string): string {
   if (!path) {
     return '';
   }
   const withPrefix = path.startsWith('/') ? path : `/${path}`;
-  return normalizePath(withPrefix).toLowerCase();
+  return normalizePath(withPrefix.split('/').map(canonicalizeSegment).join('/'));
+}
+
+function canonicalizeSegment(segment: string): string {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // Keep malformed percent-encodings literally.
+  }
+  return encodePathSegment(decoded.replace(/[A-Z]/g, (character) => character.toLowerCase()));
+}
+
+// Like encodeURIComponent, but keeps the sub-delims and ":" / "@" that RFC 3986
+// allows unencoded in a path segment.
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(/%(24|26|2B|2C|3A|3B|3D|40)/g, (_, hex: string) =>
+    String.fromCharCode(parseInt(hex, 16))
+  );
+}
+
+// ZIP entry names written by non-conforming producers may contain characters
+// that URL would otherwise treat as delimiters or escapes.
+function escapeEntryNameForURI(entryName: string): string {
+  return entryName.replace(/%(?![0-9a-f]{2})|[?#]/gi, (character) => encodeURIComponent(character));
 }
 
 function getSourcePathFromRelsPath(relsPath: string): string {
@@ -766,10 +817,11 @@ function getSourcePathFromRelsPath(relsPath: string): string {
 }
 
 function getRelsPath(sourcePath: string): string {
-  const normalized = normalizePathForMap(sourcePath);
-  if (!normalized) {
+  if (!sourcePath) {
     return '/_rels/.rels';
   }
+
+  const normalized = normalizePath(sourcePath);
 
   const dir = dirName(normalized);
   const base = baseName(normalized);
