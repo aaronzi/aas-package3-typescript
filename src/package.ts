@@ -497,6 +497,19 @@ function openFromBytes(bytes: Uint8Array, path: string, readWrite: boolean, sink
     const entries = unzipSync(bytes);
     const pkg = new PackageBase(path, readWrite, sink);
 
+    const entryNamesByPartName = new Map<string, string>();
+    for (const name of Object.keys(entries)) {
+      if (name.endsWith('/')) {
+        continue;
+      }
+      const partName = normalizePathForMap(ensureLeadingSlash(name));
+      const previous = entryNamesByPartName.get(partName);
+      if (previous !== undefined) {
+        throw new Error(`duplicate ZIP entries "${previous}" and "${name}"`);
+      }
+      entryNamesByPartName.set(partName, name);
+    }
+
     const contentTypePath = '[Content_Types].xml';
     const contentTypesMap = new Map<string, string>();
     const defaultTypes = new Map<string, string>();
@@ -752,9 +765,10 @@ function pathFromUri(uri: URL): string {
   return uri.pathname || uri.toString();
 }
 
-// Part names are compared case-insensitively and independent of their
-// percent-encoding (ISO/IEC 29500-2), so "/a b.pdf", "/a%20b.pdf" and
-// "/A%20B.pdf" all map to the same key.
+// Part names are compared as case-insensitive ASCII strings and independent
+// of their percent-encoding (ISO/IEC 29500-2), so "/a b.pdf", "/a%20b.pdf"
+// and "/A%20B.pdf" all map to the same key while "/%C3%84" and "/%C3%A4" do
+// not.
 function normalizePathForMap(path: string): string {
   if (!path) {
     return '';
@@ -770,7 +784,7 @@ function canonicalizeSegment(segment: string): string {
   } catch {
     // Keep malformed percent-encodings literally.
   }
-  return encodePathSegment(decoded.toLowerCase());
+  return encodePathSegment(decoded.replace(/[A-Z]/g, (character) => character.toLowerCase()));
 }
 
 // Like encodeURIComponent, but keeps the sub-delims and ":" / "@" that RFC 3986

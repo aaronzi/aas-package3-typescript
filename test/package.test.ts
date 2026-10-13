@@ -311,6 +311,27 @@ describe('Packaging', () => {
     expect(await pkg.FindPart(supplementary.URI)).toBe(supplementary);
   });
 
+  test('rejects ZIP entries with equivalent part names', async () => {
+    const files = unzipSync(packageWithSupplementary('aasx/suppl/a b.pdf', '/aasx/suppl/a%20b.pdf'));
+    files['aasx/suppl/a%20b.pdf'] = new Uint8Array([1]);
+
+    await expect(NewPackaging().OpenReadFromBytes(zipSync(files, { level: 0 }))).rejects.toThrow(
+      `${ErrInvalidFormat}: duplicate ZIP entries "aasx/suppl/a b.pdf" and "aasx/suppl/a%20b.pdf"`
+    );
+  });
+
+  test('distinguishes part names that differ only in non-ASCII case', async () => {
+    const files = unzipSync(packageWithSupplementary('aasx/suppl/%C3%84.pdf', '/aasx/suppl/%C3%84.pdf'));
+    files['aasx/suppl/%C3%A4.pdf'] = new Uint8Array([1]);
+    const pkg = await NewPackaging().OpenReadFromBytes(zipSync(files, { level: 0 }));
+
+    const upper = await pkg.FindPart(new URL('https://package.local/aasx/suppl/Ä.pdf'));
+    const lower = await pkg.FindPart(new URL('https://package.local/aasx/suppl/ä.pdf'));
+    expect(upper?.URI.pathname).toBe('/aasx/suppl/%C3%84.pdf');
+    expect(lower?.URI.pathname).toBe('/aasx/suppl/%C3%A4.pdf');
+    expect(await pkg.SupplementariesFor((await pkg.Specs())[0])).toEqual([upper]);
+  });
+
   test('writes parts with a space in their name percent-encoded and finds them again', async () => {
     const packaging = NewPackaging();
     const pkg = await packaging.CreateInStream(memoryStream());
