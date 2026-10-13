@@ -81,7 +81,7 @@ jobs:
         run: npm publish --provenance --tag "$NPM_TAG"
 
       - name: Commit synced package files
-        if: github.event.release.target_commitish == 'main' && github.repository == 'aas-core-works/aas-package3-typescript'
+        if: github.event.release.target_commitish == 'main' && github.repository == 'eclipse-aascw/aas-package3-typescript'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"

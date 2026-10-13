@@ -1,10 +1,10 @@
 # aas-package3-typescript
 
-[![Test](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/test.yml)
-[![Check style](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/check-style.yml/badge.svg)](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/check-style.yml)
-[![Check doc](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/check-doc.yml/badge.svg)](https://github.com/aas-core-works/aas-package3-typescript/actions/workflows/check-doc.yml)
+[![Test](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/test.yml)
+[![Check style](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/check-style.yml/badge.svg)](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/check-style.yml)
+[![Check doc](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/check-doc.yml/badge.svg)](https://github.com/eclipse-aascw/aas-package3-typescript/actions/workflows/check-doc.yml)
 [![npm version](https://img.shields.io/npm/v/aas-package3-typescript)](https://www.npmjs.com/package/aas-package3-typescript)
-[![Coverage Status](https://coveralls.io/repos/github/aas-core-works/aas-package3-typescript/badge.svg?branch=main)](https://coveralls.io/github/aas-core-works/aas-package3-typescript?branch=main)
+[![Coverage Status](https://coveralls.io/repos/github/eclipse-aascw/aas-package3-typescript/badge.svg?branch=main)](https://coveralls.io/github/eclipse-aascw/aas-package3-typescript?branch=main)
 
 Aas-package3-typescript is a library for reading and writing packaged file format of an [Asset Administration Shell (AAS)] in TypeScript.
 
